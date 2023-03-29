@@ -1,0 +1,77 @@
+{
+  "title": "Pythonの初期化",
+  "closed": false,
+  "archived": false,
+  "created_at": "2021-02-06",
+  "comments": [
+    {
+      "author": "methane",
+      "created_at": "2021-02-06",
+      "body_markdown": "Pythonコマンドが実行されてからインタプリタが始まるまでの流れを追います。Victorがかなり整理してくれたけれどもそれでも複雑。\n貼っているソースコードは流れを追いやすいようにエラー処理等を削っています。\n\n`Modules/main.c`\n\nWindows なら Py_Main(), Unix なら Py_BytesMain() が呼ばれる。こいつらはコマンドライン引数を `_PyArgv` に格納して `pymain_main()` を呼ぶ。\n\n```c\npymain_main(_PyArgv *args)\n{\n    pymain_init(args);\n    return Py_RunMain();\n}\n```\n\n`Py_RunMain()` に入ると初期のimportなどの実行が始まるので、今回追うのは `pymain_init()` のみ。\n",
+      "body_updated_at": "2021-02-06"
+    },
+    {
+      "author": "methane",
+      "created_at": "2021-02-06",
+      "body_markdown": "```c\n/* --- pymain_init() ---------------------------------------------- */\n\nstatic PyStatus\npymain_init(const _PyArgv *args)\n{\n    PyStatus status;\n    status = _PyRuntime_Initialize();\n\n    PyPreConfig preconfig;\n    PyPreConfig_InitPythonConfig(&preconfig);\n\n    status = _Py_PreInitializeFromPyArgv(&preconfig, args);\n\n    PyConfig config;\n    PyConfig_InitPythonConfig(&config);\n\n    /* pass NULL as the config: config is read from command line arguments,\n       environment variables, configuration files */\n    if (args->use_bytes_argv) {\n        status = PyConfig_SetBytesArgv(&config, args->argc, args->bytes_argv);\n    }\n    else {\n        status = PyConfig_SetArgv(&config, args->argc, args->wchar_argv);\n    }\n\n    status = Py_InitializeFromConfig(&config);\n    status = _PyStatus_OK();\n\ndone:\n    PyConfig_Clear(&config);\n    return status;\n}\n```"
+    },
+    {
+      "author": "methane",
+      "created_at": "2021-02-06",
+      "body_markdown": "`Python/pylifecycle.c`\n\n```c\nPyStatus\n_PyRuntime_Initialize(void)\n{\n    /* XXX We only initialize once in the process, which aligns with\n       the static initialization of the former globals now found in\n       _PyRuntime.  However, _PyRuntime *should* be initialized with\n       every Py_Initialize() call, but doing so breaks the runtime.\n       This is because the runtime state is not properly finalized\n       currently. */\n    if (runtime_initialized) {\n        return _PyStatus_OK();\n    }\n    runtime_initialized = 1;\n\n    return _PyRuntimeState_Init(&_PyRuntime);\n}\n```"
+    },
+    {
+      "author": "methane",
+      "created_at": "2021-02-06",
+      "body_markdown": "`Python/pystate.c`\n\n```c\nPyStatus\n_PyRuntimeState_Init(_PyRuntimeState *runtime)\n{\n    /* Force default allocator, since _PyRuntimeState_Fini() must\n       use the same allocator than this function. */\n    PyMemAllocatorEx old_alloc;\n    _PyMem_SetDefaultAllocator(PYMEM_DOMAIN_RAW, &old_alloc);\n\n    PyStatus status = _PyRuntimeState_Init_impl(runtime);\n\n    PyMem_SetAllocator(PYMEM_DOMAIN_RAW, &old_alloc);\n    return status;\n}\n```\n\nアロケーターをデフォルトに強制してから `_PyRuntimeState_Init_impl()`"
+    },
+    {
+      "author": "methane",
+      "created_at": "2021-02-06",
+      "body_markdown": "Python/pystate.c\n\n```c\nstatic PyStatus\n_PyRuntimeState_Init_impl(_PyRuntimeState *runtime)\n{\n    /* We preserve the hook across init, because there is\n       currently no public API to set it between runtime\n       initialization and interpreter initialization. */\n    void *open_code_hook = runtime->open_code_hook;\n    void *open_code_userdata = runtime->open_code_userdata;\n    _Py_AuditHookEntry *audit_hook_head = runtime->audit_hook_head;\n    // bpo-42882: Preserve next_index value if Py_Initialize()/Py_Finalize()\n    // is called multiple times.\n    Py_ssize_t unicode_next_index = runtime->unicode_ids.next_index;\n\n    memset(runtime, 0, sizeof(*runtime));\n\n    runtime->open_code_hook = open_code_hook;\n    runtime->open_code_userdata = open_code_userdata;\n    runtime->audit_hook_head = audit_hook_head;\n\n    _PyEval_InitRuntimeState(&runtime->ceval);\n\n    PyPreConfig_InitPythonConfig(&runtime->preconfig);\n\n    runtime->gilstate.check_enabled = 1;\n\n    /* A TSS key must be initialized with Py_tss_NEEDS_INIT\n       in accordance with the specification. */\n    Py_tss_t initial = Py_tss_NEEDS_INIT;\n    runtime->gilstate.autoTSSkey = initial;\n\n    runtime->interpreters.mutex = PyThread_allocate_lock();\n    if (runtime->interpreters.mutex == NULL) {\n        return _PyStatus_NO_MEMORY();\n    }\n    runtime->interpreters.next_id = -1;\n\n    runtime->xidregistry.mutex = PyThread_allocate_lock();\n    if (runtime->xidregistry.mutex == NULL) {\n        return _PyStatus_NO_MEMORY();\n    }\n\n    // Set it to the ID of the main thread of the main interpreter.\n    runtime->main_thread = PyThread_get_thread_ident();\n\n    runtime->unicode_ids.lock = PyThread_allocate_lock();\n    if (runtime->unicode_ids.lock == NULL) {\n        return _PyStatus_NO_MEMORY();\n    }\n    runtime->unicode_ids.next_index = unicode_next_index;\n\n    return _PyStatus_OK();\n}\n```"
+    },
+    {
+      "author": "methane",
+      "created_at": "2021-02-06",
+      "body_markdown": "Python/ceval.c\n\n```c\nvoid\n_PyEval_InitRuntimeState(struct _ceval_runtime_state *ceval)\n{\n#ifndef EXPERIMENTAL_ISOLATED_SUBINTERPRETERS\n    _gil_initialize(&ceval->gil);\n#endif\n}\n```"
+    },
+    {
+      "author": "methane",
+      "created_at": "2021-02-06",
+      "body_markdown": "Python/preconfig.c\n\n```c\nvoid\nPyPreConfig_InitPythonConfig(PyPreConfig *config)\n{\n    _PyPreConfig_InitCompatConfig(config);\n\n    config->_config_init = (int)_PyConfig_INIT_PYTHON;\n    config->isolated = 0;\n    config->parse_argv = 1;\n    config->use_environment = 1;\n    /* Set to -1 to enable C locale coercion (PEP 538) and UTF-8 Mode (PEP 540)\n       depending on the LC_CTYPE locale, PYTHONUTF8 and PYTHONCOERCECLOCALE\n       environment variables. */\n    config->coerce_c_locale = -1;\n    config->coerce_c_locale_warn = -1;\n    config->utf8_mode = -1;\n#ifdef MS_WINDOWS\n    config->legacy_windows_fs_encoding = 0;\n#endif\n}\n```\n\n`PyPreConfig_InitPythonConfig(&runtime->preconfig);` で `runtime->preconfig` が初期化された。\n\n`_PyRuntimeState_Init()` 終わり。\n\n`_PyRuntime_Initialize()` 終わり。 `pymain_init()` に戻る。",
+      "body_updated_at": "2021-02-06"
+    },
+    {
+      "author": "methane",
+      "created_at": "2021-02-06",
+      "body_markdown": "main_init()\n\n```c\n    PyPreConfig preconfig;\n    PyPreConfig_InitPythonConfig(&preconfig);\n```\n\nに入っていく。\n\nPython/preconfig.c\n\n```c\nvoid\nPyPreConfig_InitPythonConfig(PyPreConfig *config)\n{\n    _PyPreConfig_InitCompatConfig(config);\n\n    config->_config_init = (int)_PyConfig_INIT_PYTHON;\n    config->isolated = 0;\n    config->parse_argv = 1;\n    config->use_environment = 1;\n    /* Set to -1 to enable C locale coercion (PEP 538) and UTF-8 Mode (PEP 540)\n       depending on the LC_CTYPE locale, PYTHONUTF8 and PYTHONCOERCECLOCALE\n       environment variables. */\n    config->coerce_c_locale = -1;\n    config->coerce_c_locale_warn = -1;\n    config->utf8_mode = -1;\n#ifdef MS_WINDOWS\n    config->legacy_windows_fs_encoding = 0;\n#endif\n}\n```\n\n```c\nvoid\n_PyPreConfig_InitCompatConfig(PyPreConfig *config)\n{\n    memset(config, 0, sizeof(*config));\n\n    config->_config_init = (int)_PyConfig_INIT_COMPAT;\n    config->parse_argv = 0;\n    config->isolated = -1;\n    config->use_environment = -1;\n    config->configure_locale = 1;\n\n    /* bpo-36443: C locale coercion (PEP 538) and UTF-8 Mode (PEP 540)\n       are disabled by default using the Compat configuration.\n\n       Py_UTF8Mode=1 enables the UTF-8 mode. PYTHONUTF8 environment variable\n       is ignored (even if use_environment=1). */\n    config->utf8_mode = 0;\n    config->coerce_c_locale = 0;\n    config->coerce_c_locale_warn = 0;\n\n    config->dev_mode = -1;\n#ifdef EXPERIMENTAL_ISOLATED_SUBINTERPRETERS\n    /* bpo-40512: pymalloc is not compatible with subinterpreters,\n       force usage of libc malloc() which is thread-safe. */\n#ifdef Py_DEBUG\n    config->allocator = PYMEM_ALLOCATOR_MALLOC_DEBUG;\n#else\n    config->allocator = PYMEM_ALLOCATOR_MALLOC;\n#endif\n#else\n    config->allocator = PYMEM_ALLOCATOR_NOT_SET;\n#endif\n#ifdef MS_WINDOWS\n    config->legacy_windows_fs_encoding = -1;\n#endif\n}\n```",
+      "body_updated_at": "2021-02-06"
+    },
+    {
+      "author": "methane",
+      "created_at": "2021-02-06",
+      "body_markdown": "-1 は未設定で今後設定されるもの。 0/1 は off/on のデフォルトが設定されているけれども、このあと別の設定で上書きされる可能性もある。"
+    },
+    {
+      "author": "methane",
+      "created_at": "2021-02-06",
+      "body_markdown": "`pymain_main()`\n\n```c\n    status = _Py_PreInitializeFromPyArgv(&preconfig, args);\n```\n\nPython/pylifecycle.c\n\n```c\nPyStatus\n_Py_PreInitializeFromPyArgv(const PyPreConfig *src_config, const _PyArgv *args)\n{\n    PyStatus status;\n    _PyRuntimeState *runtime = &_PyRuntime;\n\n    if (runtime->preinitialized) {\n        /* If it's already configured: ignored the new configuration */\n        return _PyStatus_OK();\n    }\n    runtime->preinitializing = 1;\n\n    PyPreConfig config;\n    status = _PyPreConfig_InitFromPreConfig(&config, src_config);\n    status = _PyPreConfig_Read(&config, args);\n    status = _PyPreConfig_Write(&config);\n\n    runtime->preinitializing = 0;\n    runtime->preinitialized = 1;\n    return _PyStatus_OK();\n}\n```",
+      "body_updated_at": "2021-02-06"
+    },
+    {
+      "author": "methane",
+      "created_at": "2021-02-06",
+      "body_markdown": "src_config は `PyPreConfig_InitPythonConfig()` でデフォルト値に初期化されたやつ。\n"
+    },
+    {
+      "author": "methane",
+      "created_at": "2021-02-06",
+      "body_markdown": "Python/preconfig.c\n\n```c\nPyStatus\n_PyPreConfig_InitFromPreConfig(PyPreConfig *config,\n                               const PyPreConfig *config2)\n{\n    PyPreConfig_InitPythonConfig(config);\n    preconfig_copy(config, config2);\n    return _PyStatus_OK();\n}\n```\n\nIntiPythonConfig してそこの config2 をコピーしてるけど、 config2 も InitPythonConfig で初期化しているので実質なにもしてない（pythonコマンドじゃなくてPythonをライブラリとしてembedしているときは違う手順になることもあるのだろう。）"
+    },
+    {
+      "author": "methane",
+      "created_at": "2021-02-06",
+      "body_markdown": "_PyPreConfig_Read(). これが本体ぽい。\n\n```c\n/* Read the configuration from:\n\n   - command line arguments\n   - environment variables\n   - Py_xxx global configuration variables\n   - the LC_CTYPE locale */\nPyStatus\n_PyPreConfig_Read(PyPreConfig *config, const _PyArgv *args)\n{\n    PyStatus status;\n\n    status = _PyRuntime_Initialize();\n    if (_PyStatus_EXCEPTION(status)) {\n        return status;\n    }\n\n    preconfig_get_global_vars(config);\n\n    /* Copy LC_CTYPE locale, since it's modified later */\n    const char *loc = setlocale(LC_CTYPE, NULL);\n    if (loc == NULL) {\n        return _PyStatus_ERR(\"failed to LC_CTYPE locale\");\n    }\n    char *init_ctype_locale = _PyMem_RawStrdup(loc);\n    if (init_ctype_locale == NULL) {\n        return _PyStatus_NO_MEMORY();\n    }\n\n    /* Save the config to be able to restore it if encodings change */\n    PyPreConfig save_config;\n\n    status = _PyPreConfig_InitFromPreConfig(&save_config, config);\n    if (_PyStatus_EXCEPTION(status)) {\n        return status;\n    }\n\n    /* Set LC_CTYPE to the user preferred locale */\n    if (config->configure_locale) {\n        _Py_SetLocaleFromEnv(LC_CTYPE);\n    }\n\n    _PyPreCmdline cmdline = _PyPreCmdline_INIT;\n    int init_utf8_mode = Py_UTF8Mode;\n#ifdef MS_WINDOWS\n    int init_legacy_encoding = Py_LegacyWindowsFSEncodingFlag;\n#endif\n\n    int locale_coerced = 0;\n    int loops = 0;\n\n    while (1) {\n        int utf8_mode = config->utf8_mode;\n\n        /* Watchdog to prevent an infinite loop */\n        loops++;\n        if (loops == 3) {\n            status = _PyStatus_ERR(\"Encoding changed twice while \"\n                                   \"reading the configuration\");\n            goto done;\n        }\n\n        /* bpo-34207: Py_DecodeLocale() and Py_EncodeLocale() depend\n           on Py_UTF8Mode and Py_LegacyWindowsFSEncodingFlag. */\n        Py_UTF8Mode = config->utf8_mode;\n#ifdef MS_WINDOWS\n        Py_LegacyWindowsFSEncodingFlag = config->legacy_windows_fs_encoding;\n#endif\n\n        if (args) {\n            // Set command line arguments at each iteration. If they are bytes\n            // strings, they are decoded from the new encoding.\n            status = _PyPreCmdline_SetArgv(&cmdline, args);\n            if (_PyStatus_EXCEPTION(status)) {\n                goto done;\n            }\n        }\n\n        status = preconfig_read(config, &cmdline);\n        if (_PyStatus_EXCEPTION(status)) {\n            goto done;\n        }\n\n        /* The legacy C locale assumes ASCII as the default text encoding, which\n         * causes problems not only for the CPython runtime, but also other\n         * components like GNU readline.\n         *\n         * Accordingly, when the CLI detects it, it attempts to coerce it to a\n         * more capable UTF-8 based alternative.\n         *\n         * See the documentation of the PYTHONCOERCECLOCALE setting for more\n         * details.\n         */\n        int encoding_changed = 0;\n        if (config->coerce_c_locale && !locale_coerced) {\n            locale_coerced = 1;\n            _Py_CoerceLegacyLocale(0);\n            encoding_changed = 1;\n        }\n\n        if (utf8_mode == -1) {\n            if (config->utf8_mode == 1) {\n                /* UTF-8 Mode enabled */\n                encoding_changed = 1;\n            }\n        }\n        else {\n            if (config->utf8_mode != utf8_mode) {\n                encoding_changed = 1;\n            }\n        }\n\n        if (!encoding_changed) {\n            break;\n        }\n\n        /* Reset the configuration before reading again the configuration,\n           just keep UTF-8 Mode and coerce C locale value. */\n        int new_utf8_mode = config->utf8_mode;\n        int new_coerce_c_locale = config->coerce_c_locale;\n        preconfig_copy(config, &save_config);\n        config->utf8_mode = new_utf8_mode;\n        config->coerce_c_locale = new_coerce_c_locale;\n\n        /* The encoding changed: read again the configuration\n           with the new encoding */\n    }\n    status = _PyStatus_OK();\n\ndone:\n    if (init_ctype_locale != NULL) {\n        setlocale(LC_CTYPE, init_ctype_locale);\n        PyMem_RawFree(init_ctype_locale);\n    }\n    Py_UTF8Mode = init_utf8_mode ;\n#ifdef MS_WINDOWS\n    Py_LegacyWindowsFSEncodingFlag = init_legacy_encoding;\n#endif\n    _PyPreCmdline_Clear(&cmdline);\n    return status;\n}\n```"
+    }
+  ]
+}

@@ -1,0 +1,29 @@
+{
+  "title": "Codespacesとdevcontainerのメモ",
+  "closed": true,
+  "archived": false,
+  "created_at": "2022-12-29",
+  "comments": [
+    {
+      "author": "methane",
+      "created_at": "2022-12-29",
+      "body_markdown": "## Codespaces と devcontainer の違い\n\nCodespacesはdevcontainerを使っているものの、実際には devcontainer.json や docker-compose.yml に色々とマージしてから devcontainer を起動しているので、 Codespaces の設定としての devcontainer.json がそのまま VSCode の devcontainer として動くとは限らない。\n\n一番の違いは workspaceFolder。\n\nCodespaces は `/workspaces/<リポジトリ名>` をチェックアウトし、 `/workspace` をバインドマウントする。そして `workspaceFolder` が設定されてない場合は `/workspaces/<リポジトリ名>` を workspaceFolder に設定する。\n\nもちろん `workspaceFolder` を指定しない devcontainer.json を使ってVSCodeでコンテナを使おうとするとエラーになるので、 Codespaces でも独自 devcontianer でも使える devcontainer.json を使いたい場合は `/workspaces` 以外のディレクトリを用意してそこを workspaceFolder に設定するのが良い。"
+    },
+    {
+      "author": "methane",
+      "created_at": "2022-12-29",
+      "body_markdown": "## Codespace の workspace のパーミッション\n\nCodespace を起動して ls すると、ディレクトリに変な色がついている。パーミッションを見ると、otherにもwがついているのが原因ぽい。なぜ。。。\n\n![](https://storage.googleapis.com/zenn-user-upload/8d7c18e982a4-20221229.png)\n\n`chmod -R o-w .` すると直るので、 `postCreateCommand` あたりに書いておくといいだろう。",
+      "body_updated_at": "2022-12-29"
+    },
+    {
+      "author": "methane",
+      "created_at": "2022-12-29",
+      "body_markdown": "## Rancher Desktop や colima を使った時のUID問題\n\nDocker Desktop では bind mount をするときに、gRPC-FUSEの謎技術によって、ホストのディレクトリをbind mountするときにちゃんとコンテナないのユーザーのuid/gidに変換されている。（詳細不明）\n\ncolima や Rancher Desktop を使って devcontainer を使おうとした場合、一旦 Linux VM に sshfs や 9p を使ってマウントした後、さらにLinux上のdockerがbind mountする形になっている。そのため、コンテナ内のユーザーIDとbind mountしたホストのディレクトリのコンテナ内でのユーザーID（devcontainer用のイメージでは1000が一般的）が一致しない。そのためworkspaceフォルダーのオーナーが他人になり、作業ができない。\n\nホストのUIDとコンテナ内のUIDが一致しない問題は一般的なので、Linux版のdevcontainerではコンテナ内のUID/GIDをホストのUID/GIDに合わせる機能 \"updateRemoteUserUID\" が存在するが、mac版ではその動作はしない（しても、macのUIDとLinux VM内のUIDが一致してないと意味がない）\n\nどうしてもmacOSでDocker Desktopを使わずにdevcontainerで作業したい場合は、 \"updateRemoteUserUID\" が実行している Dockerfile と同じことを手作業ですればいい。\n\nhttps://github.com/devcontainers/cli/blob/4a8632b141e592dd37f423080beb6033f21336d1/scripts/updateUID.Dockerfile\n\nただし、実行がコンテナ作成後になるので、コンテナ作成中にUID 1000版で作られてしまったファイルのchownが必要になる。正直お勧めできない。\n\n現実的に、 macOSユーザーが devcontainer を使いたい場合は次のようにするのがいいと思う。\n\n* あきらめて Docker Desktop を買う\n* Remote-SSH 等で Linux 上で devcontainer を動かす\n   * 性能は Docker Desktop on macOS より多分上\n   * 代わりに macOS 上で動くRemote非対応デスクトップアプリでそのファイルを編集するのはあきらめる"
+    },
+    {
+      "author": "methane",
+      "created_at": "2022-12-29",
+      "body_markdown": "## features の python\n\nfeatures で python 環境のセットアップができる。python自体のインストールに加えて、pipxとかblackとかいろいろインストールしている。具体的に何をするのかはソース参照。\n\nhttps://github.com/devcontainers/features/tree/main/src/python\n\nで、Pythonのインストール方法は優先順で、システムのPython、Oryxを使ったバイナリインストール、ソースからビルド、になっている。\n\nソースからビルドする場合はもちろん起動速度が遅くなる（オプションで最適化を有効にしたらさらに遅くなる）ので、頻繁にCodespaceを使うならprebuildの設定をしておいた方がいいだろう。\n\nOryxを使いたい場合は、Oryxもfeaturesでインストールできる。featuresのインストール順が自動でOryx優先になるかわからないので、手動でOryxを先にインストールさせた方がいいだろう。 (overrideFeatureInstallOrder オプション)\n\nただ、僕が試した時点では Ubuntu 22.04 に Oryx が対応してないのでソースからインストールになってしまった。Ubuntu 22.04ではシステムのPythonが3.10だったので、それを使うなら Oryx はいらない。\n\n他の言語の feature もチラ見した感じだとソースからビルドするものがあるので、そういう場合は features の代わりに apt, conda, nix, Homebrew などのパッケージマネージャーの利用も考えた方がいいかもしれない。\n\nLinux上でもバイナリをサクッとインストールできる言語はいいですね。"
+    }
+  ]
+}
