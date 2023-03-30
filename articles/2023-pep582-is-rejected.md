@@ -3,7 +3,7 @@ title: "PEP 582 (__pypackages__) がRejectされました"
 emoji: "📌"
 type: "tech" # tech: 技術記事 / idea: アイデア
 topics: ["python"]
-published: false
+published: true
 ---
 
 `__pypackages__` を自動的にimport pathに追加する提案 PEP 582 が Reject されました。ただし "at least in its current form." という但し書きがついているので、今後形を変えて復活する可能性は残っています。
