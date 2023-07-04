@@ -29,7 +29,7 @@ go-mysql v1.8 (未リリース)からは、これが上の動作に統一され�
 
 ### database/sql の設計
 
-ユーザーがScan()を呼ぶとき、 `database/sql` はドライバーの [`Rows.Next()`](https://pkg.go.dev/database/sql/driver#Rows)を呼び出します。 `Rows.Next()` の定義は次のとおりです。
+ユーザーがScan()を呼ぶとき、 `database/sql` はドライバの [`Rows.Next()`](https://pkg.go.dev/database/sql/driver#Rows)を呼び出します。 `Rows.Next()` の定義は次のとおりです。
 
 ```go
 type Rows interface {
