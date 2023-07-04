@@ -6,6 +6,8 @@ topics: ["MySQL", "Go"]
 published: true
 ---
 
+## 改善点
+
 `github.com/go-sql-driver/mysql` (以降 go-mysql) の v1.8 から、Scanの振る舞いが変わります。
 
 go-mysql v1.7.1 までは、次のコードの2つのクエリのScan結果は異なっていました。
@@ -36,10 +38,10 @@ type Rows interface {
     // (略)
 
     // Next is called to populate the next row of data into
-	// the provided slice. The provided slice will be the same
-	// size as the Columns() are wide.
-	// (略)
-	Next(dest []Value) error
+    // the provided slice. The provided slice will be the same
+    // size as the Columns() are wide.
+    // (略)
+    Next(dest []Value) error
 }
 ```
 
@@ -77,7 +79,7 @@ MySQLプロトコル (新しい X protocol と区別するために client/serve
 * 文字列とバイト列を区別するために `[]byte` ではなく `string` を返すのは、データを格納するメモリのアロケーションとデータのコピーが必要になり、デメリットが大きい。さらに `sql.RawBytes` の効果を大きく損ねる。
 * 整数型、float型については、 `dest[i]` (any型) に `[]byte` を格納する場合も `int64`, `float64` を格納する場合もアロケーションの回数は変わらず、サイズはむしろ小さくなる。 (スライスはptr,len,capで構成されるのでintの3つ分のサイズ)
 
-	* Scan先が `sql.RawBytes` だった場合、文字列→整数→文字列変換と、追加のアロケーション1回が発生するが、そのコストは長さが分からない文字列と違って許容しやすい。
+    * Scan先が `sql.RawBytes` だった場合、文字列→整数→文字列変換と、追加のアロケーション1回が発生するが、そのコストは長さが分からない文字列と違って許容しやすい。
 
 これらを考慮した上で、メンテナンスコストが高くなるオプション追加ではなく、常に int, float を変換する方向で行くことにしました。これだけでも any へのScanが大分楽になるはずです。
 
